@@ -1,88 +1,795 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <title>Aave 金库实时资产监控 (Zapper API)</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <style>
-    body { background: #10151b; color: #eaf7f4; font-family: 'Segoe UI',Arial,sans-serif; margin: 0; }
-    header { padding: 24px 0 12px 0; text-align: center; color: #64efba; font-size: 28px;}
-    .container { max-width:860px; margin:32px auto 0 auto; background:#16202b; border-radius:14px; padding:28px 16px; box-shadow: 0 3px 30px #0005;}
-    .desc { color:#a7b9cc; text-align:center; margin:0 0 18px 0;}
-    .refresh-btn{color:#202; background:#64efba;border:none;border-radius:5px;padding:7px 24px;font-weight:700;cursor:pointer; float:right;}
-    .refresh-btn:hover{background:#97ffe7;}
-    .updated {font-size:12px;color:#87cfbc;text-align: right;margin-bottom:4px;}
-    .vault-list{margin-top:20px;}
-    .vault-card{background:#232a36; border-radius:9px; margin-bottom:20px; padding:17px;}
-    .vault-title{color:#64efba;font-size:17px;font-weight:bold;margin-bottom:3px;}
-    .vault-sub{color:#aaaacf;font-size:13px;margin-bottom:10px;}
-    .asset-row{display:flex;align-items:center;padding:5px 0;border-bottom:1px solid #293140;}
-    .asset-row:last-child{border-bottom:0;}
-    .asset-logo img{width:17px;height:17px;vertical-align:middle;margin-right:5px;border-radius:2px;}
-    .asset-name{flex:0 0 120px;}
-    .asset-amt{flex:0 0 120px;color:#64efba;}
-    .asset-value{flex:1 1 auto;}
-    .err{color:#ff5353;text-align:center;}
-    .loading{text-align:center;color:#63efba;margin:36px 0;}
-    @media(max-width:600px){.container{padding:8px 3px;}.refresh-btn{width:94%;float:none;display:block;margin:8px auto 0 auto;}}
-  </style>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>DeFi Vault Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#050608;
+  --bg1:#0a0c0f;
+  --bg2:#0f1218;
+  --bg3:#141820;
+  --line:#1c2230;
+  --line2:#242d3d;
+  --amber:#ffb300;
+  --amber2:#ff8f00;
+  --cyan:#00e5ff;
+  --green:#00c853;
+  --red:#ff1744;
+  --blue:#448aff;
+  --text:#c8d0de;
+  --text2:#7a8799;
+  --text3:#3d4a5c;
+  --white:#e8edf5;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',monospace}
+
+/* Scanline overlay */
+body::after{
+  content:'';position:fixed;inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.04) 2px,rgba(0,0,0,0.04) 4px);
+  pointer-events:none;z-index:9999;
+}
+
+/* Top bar */
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;height:42px;
+  background:var(--bg1);
+  border-bottom:1px solid var(--line);
+  position:sticky;top:0;z-index:100;
+}
+.topbar-left{display:flex;align-items:center;gap:16px}
+.logo{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:13px;font-weight:600;letter-spacing:2px;
+  color:var(--amber);text-transform:uppercase;
+}
+.logo span{color:var(--text3)}
+.ticker{
+  font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text2);
+  display:flex;align-items:center;gap:12px;
+}
+.ticker-item{display:flex;gap:5px}
+.ticker-item .v{color:var(--white)}
+.ticker-item .up{color:var(--green)}
+.ticker-item .dn{color:var(--red)}
+.topbar-right{display:flex;align-items:center;gap:14px}
+.clock{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text2)}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 2s ease infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.refresh-all{
+  font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1px;
+  color:var(--amber);border:1px solid rgba(255,179,0,.3);
+  background:rgba(255,179,0,.05);padding:4px 10px;border-radius:2px;
+  cursor:pointer;transition:all .15s;text-transform:uppercase;
+}
+.refresh-all:hover{background:rgba(255,179,0,.12);border-color:var(--amber)}
+
+/* Layout */
+.layout{display:grid;grid-template-columns:240px 1fr;height:calc(100vh - 42px);overflow:hidden}
+
+/* Sidebar */
+.sidebar{
+  background:var(--bg1);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+.sidebar-section{padding:12px 0;border-bottom:1px solid var(--line)}
+.sidebar-label{
+  font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:2px;
+  color:var(--text3);text-transform:uppercase;padding:0 14px 8px;
+}
+.protocol-item{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:7px 14px;cursor:pointer;transition:background .12s;
+  border-left:2px solid transparent;
+}
+.protocol-item:hover{background:var(--bg2)}
+.protocol-item.active{background:var(--bg2);border-left-color:var(--amber)}
+.protocol-item.loading .pi-name{opacity:.5}
+.pi-left{display:flex;align-items:center;gap:8px}
+.pi-icon{
+  width:22px;height:22px;border-radius:4px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;flex-shrink:0;
+}
+.pi-name{font-size:12px;font-weight:500;color:var(--white)}
+.pi-chain{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text3);margin-top:1px}
+.pi-tvl{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--amber);text-align:right}
+.pi-chg{font-family:'IBM Plex Mono',monospace;font-size:9px;text-align:right}
+.pi-chg.up{color:var(--green)}
+.pi-chg.dn{color:var(--red)}
+.pi-chg.flat{color:var(--text3)}
+
+.add-protocol{
+  padding:10px 14px;
+  display:flex;align-items:center;gap:8px;
+  font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);
+  cursor:pointer;border:none;background:none;width:100%;
+  transition:color .15s;letter-spacing:.5px;
+}
+.add-protocol:hover{color:var(--amber)}
+
+/* Search overlay */
+.search-overlay{
+  position:fixed;inset:0;background:rgba(5,6,8,.92);z-index:500;
+  display:flex;align-items:flex-start;justify-content:center;
+  padding-top:80px;opacity:0;pointer-events:none;transition:opacity .2s;
+}
+.search-overlay.open{opacity:1;pointer-events:all}
+.search-box{
+  width:480px;background:var(--bg2);border:1px solid var(--line2);border-radius:4px;overflow:hidden;
+}
+.search-input-wrap{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.search-input-wrap span{color:var(--amber);font-size:14px}
+.search-inp{
+  flex:1;background:none;border:none;outline:none;
+  font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--white);
+}
+.search-inp::placeholder{color:var(--text3)}
+.search-esc{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text3);border:1px solid var(--line2);padding:2px 6px;border-radius:2px}
+.search-results{max-height:320px;overflow-y:auto}
+.search-result-item{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:9px 16px;cursor:pointer;transition:background .1s;
+  font-family:'IBM Plex Mono',monospace;
+}
+.search-result-item:hover{background:var(--bg3)}
+.sri-left{display:flex;align-items:center;gap:10px}
+.sri-logo{width:20px;height:20px;border-radius:3px;overflow:hidden;flex-shrink:0}
+.sri-logo img{width:100%;height:100%;object-fit:cover}
+.sri-name{font-size:12px;color:var(--white)}
+.sri-cat{font-size:10px;color:var(--text3);margin-left:6px}
+.sri-tvl{font-size:11px;color:var(--amber)}
+.search-empty{padding:24px;text-align:center;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)}
+
+/* Main panel */
+.main{overflow-y:auto;background:var(--bg)}
+
+/* Welcome state */
+.welcome{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;gap:12px;
+}
+.welcome-title{
+  font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:3px;
+  color:var(--text3);text-transform:uppercase;
+}
+.welcome-hint{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)}
+.welcome-hint span{color:var(--amber)}
+
+/* Detail panel */
+.detail{padding:20px}
+
+/* Header row */
+.detail-header{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:20px;
+}
+.dh-left{display:flex;align-items:center;gap:14px}
+.dh-logo{width:40px;height:40px;border-radius:6px;overflow:hidden;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:20px}
+.dh-logo img{width:100%;height:100%;object-fit:cover}
+.dh-name{font-size:20px;font-weight:600;color:var(--white)}
+.dh-slug{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text2);margin-top:3px}
+.dh-tags{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.tag{
+  font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.5px;
+  padding:2px 7px;border-radius:2px;border:1px solid;text-transform:uppercase;
+}
+.tag.chain{color:var(--cyan);border-color:rgba(0,229,255,.2)}
+.tag.cat{color:var(--amber);border-color:rgba(255,179,0,.2)}
+.tag.audit{color:var(--green);border-color:rgba(0,200,83,.2)}
+.dh-right{text-align:right}
+.dh-tvl{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;color:var(--amber)}
+.dh-tvl-label{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-bottom:3px}
+.dh-chg{font-family:'IBM Plex Mono',monospace;font-size:12px;margin-top:4px}
+.dh-chg.up{color:var(--green)}
+.dh-chg.dn{color:var(--red)}
+.dh-updated{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text3);margin-top:4px}
+
+/* KPI row */
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin-bottom:20px}
+.kpi{background:var(--bg1);padding:14px 16px}
+.kpi-label{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);margin-bottom:6px}
+.kpi-val{font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:500;color:var(--white)}
+.kpi-sub{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text2);margin-top:3px}
+.kpi-sub.up{color:var(--green)}
+.kpi-sub.dn{color:var(--red)}
+
+/* Pools section */
+.section-title{
+  font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:2px;
+  text-transform:uppercase;color:var(--text3);
+  display:flex;align-items:center;gap:10px;margin-bottom:12px;
+}
+.section-title::after{content:'';flex:1;height:1px;background:var(--line)}
+
+/* Pool table */
+.pool-table{width:100%;border-collapse:collapse;margin-bottom:24px}
+.pool-table th{
+  font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:1px;
+  text-transform:uppercase;color:var(--text3);
+  padding:6px 10px;text-align:left;border-bottom:1px solid var(--line);
+  white-space:nowrap;
+}
+.pool-table th.r{text-align:right}
+.pool-table td{
+  padding:10px 10px;border-bottom:1px solid rgba(28,34,48,.5);
+  font-family:'IBM Plex Mono',monospace;font-size:11px;
+  vertical-align:middle;
+}
+.pool-table tr:hover td{background:rgba(255,179,0,.02)}
+.pool-table tr:last-child td{border-bottom:none}
+.td-r{text-align:right}
+.td-asset{display:flex;align-items:center;gap:8px}
+.asset-logo{width:20px;height:20px;border-radius:50%;overflow:hidden;background:var(--bg2);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px}
+.asset-logo img{width:100%;height:100%;object-fit:cover}
+.asset-sym{color:var(--white);font-weight:500}
+.asset-name{font-size:10px;color:var(--text3);margin-top:1px}
+.apy-val{color:var(--green);font-weight:500}
+.apy-neg{color:var(--red)}
+.tvl-val{color:var(--amber)}
+.util-bar-wrap{display:flex;align-items:center;gap:8px}
+.util-bar{height:3px;width:60px;background:var(--bg3);border-radius:1px;flex-shrink:0}
+.util-fill{height:100%;border-radius:1px;transition:width .4s}
+.util-fill.low{background:var(--green)}
+.util-fill.mid{background:var(--amber)}
+.util-fill.high{background:var(--red)}
+.util-txt{font-size:10px;color:var(--text2)}
+.chg-cell.up{color:var(--green)}
+.chg-cell.dn{color:var(--red)}
+.chg-cell.flat{color:var(--text3)}
+.status-badge{
+  font-size:9px;letter-spacing:.5px;text-transform:uppercase;
+  padding:2px 6px;border-radius:2px;border:1px solid;
+}
+.status-badge.active{color:var(--green);border-color:rgba(0,200,83,.25)}
+.status-badge.caution{color:var(--amber);border-color:rgba(255,179,0,.25)}
+.status-badge.paused{color:var(--red);border-color:rgba(255,23,68,.25)}
+
+/* TVL chart */
+.chart-wrap{margin-bottom:24px}
+.mini-chart{height:80px;width:100%;position:relative;overflow:hidden}
+.mini-chart svg{width:100%;height:100%}
+
+/* Alert bar */
+.alert-bar{
+  background:rgba(255,179,0,.06);border:1px solid rgba(255,179,0,.2);
+  border-radius:2px;padding:10px 14px;margin-bottom:20px;
+  display:flex;align-items:flex-start;gap:10px;
+}
+.alert-bar .icon{color:var(--amber);font-size:13px;flex-shrink:0;margin-top:1px}
+.alert-bar .msg{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text);line-height:1.6}
+.alert-bar .msg strong{color:var(--amber)}
+
+/* Loading skeleton */
+.skel{animation:shimmer 1.5s ease infinite}
+@keyframes shimmer{0%,100%{opacity:.3}50%{opacity:.7}}
+.skel-line{height:10px;background:var(--line2);border-radius:2px}
+
+/* Error state */
+.err-box{
+  background:rgba(255,23,68,.05);border:1px solid rgba(255,23,68,.2);
+  border-radius:2px;padding:20px;text-align:center;
+  font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--red);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--line2);border-radius:2px}
+
+/* Responsive */
+@media(max-width:800px){
+  .layout{grid-template-columns:1fr}
+  .sidebar{display:none}
+  .kpi-row{grid-template-columns:repeat(2,1fr)}
+}
+</style>
 </head>
 <body>
-  <header>
-    Aave 协议金库资产监控
-  </header>
-  <div class="container">
-    <div class="desc">
-      自动追踪 <b>Aave</b> 协议全部池子底层资产变动 (Powered by Zapper)
-      <button class="refresh-btn" onclick="loadAaveAssets()">刷新</button>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo">DeFi<span>/</span>Monitor</div>
+    <div class="ticker" id="ticker">
+      <div class="ticker-item"><span>ETH</span><span class="v" id="eth-p">—</span></div>
+      <div class="ticker-item"><span>BTC</span><span class="v" id="btc-p">—</span></div>
+      <div class="ticker-item"><span>DeFi TVL</span><span class="v" id="defi-tvl">—</span></div>
     </div>
-    <div id="updated" class="updated"></div>
-    <div id="vaults" class="vault-list"></div>
-    <div id="err" class="err"></div>
   </div>
-  <script>
-    // 你的Zapper API KEY
-    const ZAPPER_API_KEY = "e2f4ed92-88d8-461b-9642-ca9c884aac8d";
+  <div class="topbar-right">
+    <div class="clock" id="clock"></div>
+    <div class="status-dot"></div>
+    <button class="refresh-all" onclick="refreshAll()">↺ 刷新全部</button>
+  </div>
+</div>
 
-    async function loadAaveAssets() {
-      document.getElementById('vaults').innerHTML = '<div class="loading">正在加载 Aave 金库资产...</div>';
-      document.getElementById('err').textContent = '';
-      document.getElementById('updated').innerText = '';
-      try {
-        const url = `https://api.zapper.fi/v2/apps/aave/balances?api_key=${ZAPPER_API_KEY}`;
-        const res = await fetch(url);
-        if(res.status===429) throw new Error("API 限流（429），请稍后重试");
-        if(res.status===404) throw new Error("Aave 资产接口无数据 (404)");
-        if(!res.ok) throw new Error("HTTP "+res.status);
-        const data = await res.json();
-        document.getElementById('updated').innerText = "数据刷新于 " + (new Date()).toLocaleTimeString();
-        document.getElementById('vaults').innerHTML = data.map(renderVault).join('');
-      } catch(e) {
-        document.getElementById('vaults').innerHTML = '';
-        document.getElementById('err').textContent = "拉取失败：" + e.message;
-      }
+<!-- Layout -->
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">监控列表</div>
+      <div id="protocolList"></div>
+    </div>
+    <button class="add-protocol" onclick="openSearch()">＋ 添加协议</button>
+  </div>
+
+  <!-- Main -->
+  <div class="main" id="mainPanel">
+    <div class="welcome">
+      <div class="welcome-title">DeFi Vault Monitor</div>
+      <div class="welcome-hint">从左侧列表选择协议，或点击 <span>＋ 添加协议</span> 开始监控</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Search overlay -->
+<div class="search-overlay" id="searchOverlay" onclick="closeSearchIfBg(event)">
+  <div class="search-box">
+    <div class="search-input-wrap">
+      <span>⌕</span>
+      <input class="search-inp" id="searchInp" placeholder="搜索协议名称（AAVE、Compound...）" oninput="onSearchInput()" onkeydown="onSearchKey(event)"/>
+      <span class="search-esc" onclick="closeSearch()">ESC</span>
+    </div>
+    <div class="search-results" id="searchResults">
+      <div class="search-empty">输入协议名称开始搜索</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const DEFI_LLAMA = 'https://api.llama.fi';
+const YIELDS_API = 'https://yields.llama.fi';
+const COINS_API  = 'https://coins.llama.fi';
+
+// Default watchlist (slug from DeFiLlama)
+const DEFAULT_PROTOCOLS = [
+  { slug:'aave-v3',    name:'Aave V3',    icon:'🔵' },
+  { slug:'compound-v3',name:'Compound V3',icon:'🟢' },
+  { slug:'makerdao',   name:'MakerDAO',   icon:'🟡' },
+  { slug:'lido',       name:'Lido',       icon:'🔷' },
+  { slug:'uniswap-v3', name:'Uniswap V3', icon:'🦄' },
+];
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let watchlist   = JSON.parse(localStorage.getItem('dvm_watch') || 'null') || DEFAULT_PROTOCOLS.map(p=>p.slug);
+let protocolData= {}; // slug -> { info, pools }
+let activeSlug  = null;
+let allProtocols= []; // from DeFiLlama /protocols
+
+// ─── UTILS ───────────────────────────────────────────────────────────────────
+const fmt = n => {
+  if(n==null||isNaN(n)) return '—';
+  if(Math.abs(n)>=1e9) return '$'+(n/1e9).toFixed(2)+'B';
+  if(Math.abs(n)>=1e6) return '$'+(n/1e6).toFixed(2)+'M';
+  if(Math.abs(n)>=1e3) return '$'+(n/1e3).toFixed(1)+'K';
+  return '$'+n.toFixed(2);
+};
+const fmtPct = n => n==null ? '—' : (n>=0?'+':'')+n.toFixed(2)+'%';
+const fmtApy = n => n==null||isNaN(n) ? '—' : n.toFixed(2)+'%';
+const chgClass = n => n==null ? 'flat' : n>0.1 ? 'up' : n<-0.1 ? 'dn' : 'flat';
+const chgArrow = n => n==null ? '' : n>0.1 ? '▲ ' : n<-0.1 ? '▼ ' : '';
+
+function updateClock(){
+  const now=new Date();
+  document.getElementById('clock').textContent=
+    now.toLocaleTimeString('zh-CN',{hour12:false})+' UTC+8';
+}
+setInterval(updateClock,1000); updateClock();
+
+// ─── TICKER ──────────────────────────────────────────────────────────────────
+async function loadTicker(){
+  try{
+    const r=await fetch(`${COINS_API}/prices/current/coingecko:ethereum,coingecko:bitcoin`);
+    const d=await r.json();
+    const eth=d.coins?.['coingecko:ethereum']?.price;
+    const btc=d.coins?.['coingecko:bitcoin']?.price;
+    if(eth) document.getElementById('eth-p').textContent='$'+Math.round(eth).toLocaleString();
+    if(btc) document.getElementById('btc-p').textContent='$'+Math.round(btc).toLocaleString();
+  }catch{}
+  try{
+    const r=await fetch(`${DEFI_LLAMA}/v2/historicalChainTvl`);
+    const d=await r.json();
+    if(d?.length){
+      const last=d[d.length-1];
+      document.getElementById('defi-tvl').textContent=fmt(last.tvl);
     }
+  }catch{}
+}
 
-    function renderVault(v) {
-      let sub = v.network ? `[${v.network}]` : '';
-      let assetRows = (v.tokens||[]).map(token => `
-        <div class="asset-row">
-          <span class="asset-logo">${token.icon?`<img src="${token.icon}"/>`:""}</span>
-          <span class="asset-name">${token.symbol||token.label||token.name||"?"}</span>
-          <span class="asset-amt">${token.balanceDisplay||Number(token.balanceRaw||0).toFixed(3)}</span>
-          <span class="asset-value">$${token.balanceUSD?token.balanceUSD.toLocaleString(undefined,{maximumFractionDigits:2}):"-"}</span>
+// ─── LOAD ALL PROTOCOLS ───────────────────────────────────────────────────────
+async function loadAllProtocols(){
+  if(allProtocols.length) return;
+  try{
+    const r=await fetch(`${DEFI_LLAMA}/protocols`);
+    allProtocols=await r.json();
+  }catch{}
+}
+
+// ─── SIDEBAR ─────────────────────────────────────────────────────────────────
+function renderSidebar(){
+  const list=document.getElementById('protocolList');
+  if(!watchlist.length){
+    list.innerHTML='<div style="padding:12px 14px;font-family:IBM Plex Mono,monospace;font-size:10px;color:var(--text3)">暂无协议，点击下方添加</div>';
+    return;
+  }
+  list.innerHTML=watchlist.map(slug=>{
+    const d=protocolData[slug];
+    const info=d?.info;
+    const active=slug===activeSlug;
+    const name=info?.name || slug;
+    const tvl=info?.tvl;
+    const chg1d=info?.change_1d;
+    const chains=(info?.chains||[]).slice(0,2).join('/');
+    const icon=info?.logo
+      ? `<img src="${info.logo}" onerror="this.parentNode.textContent='◈'" style="width:100%;height:100%;object-fit:cover;border-radius:3px"/>`
+      : '◈';
+    return `<div class="protocol-item ${active?'active':''} ${d?'':'loading'}" onclick="selectProtocol('${slug}')">
+      <div class="pi-left">
+        <div class="pi-icon" style="background:var(--bg2)">${icon}</div>
+        <div>
+          <div class="pi-name">${name}</div>
+          <div class="pi-chain">${chains||'multi-chain'}</div>
         </div>
-      `).join('');
-      return `
-      <div class="vault-card">
-        <div class="vault-title">${v.label||v.appName||"Aave池"} <small>${v.address||""}</small></div>
-        <div class="vault-sub">${sub} ${v.vaultType||""}</div>
-        <div>${assetRows || "<i style='color:#888'>暂无资产明细</i>"}</div>
-      </div>`;
-    }
+      </div>
+      <div>
+        <div class="pi-tvl">${tvl?fmt(tvl):'...'}</div>
+        <div class="pi-chg ${chgClass(chg1d)}">${chg1d!=null?chgArrow(chg1d)+Math.abs(chg1d).toFixed(1)+'%':''}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
 
-    // 自动加载
-    window.onload = loadAaveAssets;
-  </script>
+// ─── FETCH PROTOCOL ───────────────────────────────────────────────────────────
+async function fetchProtocol(slug){
+  // Info from /protocol/:slug
+  const [infoR, poolsR] = await Promise.allSettled([
+    fetch(`${DEFI_LLAMA}/protocol/${slug}`).then(r=>r.json()),
+    fetch(`${YIELDS_API}/pools`).then(r=>r.json()),
+  ]);
+
+  const info = infoR.status==='fulfilled' ? infoR.value : null;
+
+  // Filter pools by protocol name match
+  let pools=[];
+  if(poolsR.status==='fulfilled' && poolsR.value?.data){
+    const nameLower=(info?.name||slug).toLowerCase();
+    const slugLower=slug.toLowerCase();
+    pools=poolsR.value.data.filter(p=>{
+      const proj=(p.project||'').toLowerCase();
+      return proj===slugLower || proj.includes(slugLower.split('-')[0]);
+    }).sort((a,b)=>(b.tvlUsd||0)-(a.tvlUsd||0)).slice(0,40);
+  }
+
+  protocolData[slug]={info, pools};
+  return {info, pools};
+}
+
+// ─── SELECT PROTOCOL ──────────────────────────────────────────────────────────
+async function selectProtocol(slug){
+  activeSlug=slug;
+  renderSidebar();
+  showLoading(slug);
+
+  try{
+    await fetchProtocol(slug);
+    renderSidebar();
+    renderDetail(slug);
+  }catch(e){
+    document.getElementById('mainPanel').innerHTML=`
+      <div class="detail">
+        <div class="err-box">⚠ 无法加载协议数据：${e.message}<br><br>
+        请检查网络连接，部分 API 在国内可能需要代理</div>
+      </div>`;
+  }
+}
+
+function showLoading(slug){
+  document.getElementById('mainPanel').innerHTML=`
+    <div class="detail">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+        <div class="skel skel-line" style="width:40px;height:40px;border-radius:6px"></div>
+        <div style="flex:1">
+          <div class="skel skel-line" style="width:140px;margin-bottom:8px"></div>
+          <div class="skel skel-line" style="width:80px"></div>
+        </div>
+      </div>
+      <div class="kpi-row">
+        ${[1,2,3,4].map(()=>`<div class="kpi"><div class="skel skel-line" style="width:60px;margin-bottom:10px"></div><div class="skel skel-line" style="width:90px;height:16px"></div></div>`).join('')}
+      </div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);text-align:center;padding:40px">正在从 DeFiLlama 加载数据…</div>
+    </div>`;
+}
+
+// ─── RENDER DETAIL ────────────────────────────────────────────────────────────
+function renderDetail(slug){
+  const {info, pools}=protocolData[slug]||{};
+  if(!info){ return; }
+
+  const tvl=info.tvl;
+  const chg1d=info.change_1d;
+  const chg7d=info.change_7d;
+  const mcap=info.mcap;
+  const chains=info.chains||[];
+
+  // TVL history sparkline (last 30 pts)
+  const tvlHist=info.tvl ? (info.tvlBreakdowns ? [] : (info.chainTvls?.['Ethereum']?.tvl||info.chainTvls?.[chains[0]]?.tvl||[])) : [];
+  const pts30=tvlHist.slice(-30);
+
+  // Compute utilization alerts
+  const highUtil=pools.filter(p=>p.utilization&&p.utilization>0.85);
+  const lowLiq=pools.filter(p=>(p.tvlUsd||0)<500000&&(p.tvlUsd||0)>0);
+
+  const logoHTML=info.logo
+    ? `<img src="${info.logo}" onerror="this.parentNode.textContent='◈'" style="width:100%;height:100%;object-fit:cover"/>`
+    : '◈';
+
+  // KPIs
+  const totalBorrow=pools.reduce((s,p)=>s+(p.totalBorrowUsd||0),0);
+  const avgApy=pools.length ? pools.reduce((s,p)=>s+(p.apy||0),0)/pools.length : null;
+  const avgUtil=pools.filter(p=>p.utilization).reduce((s,p,_,a)=>s+p.utilization/a.length,0)||null;
+
+  let html=`
+  <div class="detail">
+    <!-- Header -->
+    <div class="detail-header">
+      <div class="dh-left">
+        <div class="dh-logo">${logoHTML}</div>
+        <div>
+          <div class="dh-name">${info.name||slug}</div>
+          <div class="dh-slug">${slug} · ${info.category||'DeFi'}</div>
+          <div class="dh-tags">
+            ${chains.slice(0,5).map(c=>`<span class="tag chain">${c}</span>`).join('')}
+            ${info.category?`<span class="tag cat">${info.category}</span>`:''}
+            ${info.audits?`<span class="tag audit">✓ Audited</span>`:''}
+          </div>
+        </div>
+      </div>
+      <div class="dh-right">
+        <div class="dh-tvl-label">Total Value Locked</div>
+        <div class="dh-tvl">${fmt(tvl)}</div>
+        <div class="dh-chg ${chgClass(chg1d)}">${chg1d!=null?chgArrow(chg1d)+Math.abs(chg1d).toFixed(2)+'% (24h)':''}</div>
+        <div class="dh-chg ${chgClass(chg7d)}" style="font-size:10px">${chg7d!=null?chgArrow(chg7d)+Math.abs(chg7d).toFixed(2)+'% (7d)':''}</div>
+        <div class="dh-updated">更新于 ${new Date().toLocaleTimeString('zh-CN',{hour12:false})}</div>
+      </div>
+    </div>
+
+    <!-- KPI row -->
+    <div class="kpi-row">
+      <div class="kpi">
+        <div class="kpi-label">TVL 7日变动</div>
+        <div class="kpi-val ${chgClass(chg7d)}">${fmtPct(chg7d)}</div>
+        <div class="kpi-sub">30日: ${fmtPct(info.change_1m)}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">总借款量</div>
+        <div class="kpi-val">${totalBorrow>0?fmt(totalBorrow):'—'}</div>
+        <div class="kpi-sub">${pools.length} 个流动性池</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">平均 APY</div>
+        <div class="kpi-val ${avgApy!=null?(avgApy>5?'':''):''}">
+          ${avgApy!=null?avgApy.toFixed(2)+'%':'—'}
+        </div>
+        <div class="kpi-sub">供给侧平均</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">市值</div>
+        <div class="kpi-val">${mcap?fmt(mcap):'—'}</div>
+        <div class="kpi-sub">协议代币</div>
+      </div>
+    </div>`;
+
+  // Alerts
+  if(highUtil.length||lowLiq.length){
+    html+=`<div class="alert-bar">
+      <div class="icon">⚠</div>
+      <div class="msg">`;
+    if(highUtil.length) html+=`<strong>高利用率警告：</strong>${highUtil.map(p=>p.symbol).join('、')} 利用率超过 85%，存款流动性紧张。 `;
+    if(lowLiq.length)   html+=`<strong>流动性警告：</strong>${lowLiq.slice(0,3).map(p=>p.symbol).join('、')} 池子 TVL 低于 $500K。`;
+    html+=`</div></div>`;
+  }
+
+  // Pools table
+  if(pools.length){
+    html+=`<div class="section-title">底层资产 / 流动性池 <span style="color:var(--text3);margin-left:6px">(${pools.length})</span></div>
+    <table class="pool-table">
+      <thead><tr>
+        <th>资产</th>
+        <th>链</th>
+        <th class="r">供给 APY</th>
+        <th class="r">借贷 APY</th>
+        <th class="r">TVL</th>
+        <th>利用率</th>
+        <th class="r">TVL 7日变动</th>
+        <th class="r">状态</th>
+      </tr></thead>
+      <tbody>`;
+
+    pools.forEach(p=>{
+      const util=p.utilization;
+      const utilPct=util!=null?(util*100).toFixed(1)+'%':'—';
+      const utilClass=util==null?'low':util>0.85?'high':util>0.6?'mid':'low';
+      const utilW=util!=null?Math.min(util*100,100):0;
+      const chg7=p.apyPct7D;
+      const status=util==null?'active':util>0.9?'caution':util>0.95?'paused':'active';
+      const statusLabel={'active':'正常','caution':'关注','paused':'警报'}[status];
+
+      const apySupply=p.apy!=null?`<span class="apy-val">${fmtApy(p.apy)}</span>`:'<span style="color:var(--text3)">—</span>';
+      const apyBorrow=p.apyBorrow!=null?`<span class="apy-neg">${fmtApy(p.apyBorrow)}</span>`:'<span style="color:var(--text3)">—</span>';
+
+      html+=`<tr>
+        <td>
+          <div class="td-asset">
+            <div class="asset-logo">
+              ${p.underlyingTokens?.length
+                ? `<img src="https://token-icons.llamao.fi/icons/tokens/1/${p.underlyingTokens[0]}?w=20" onerror="this.parentNode.textContent='◈'" />`
+                : '◈'}
+            </div>
+            <div>
+              <div class="asset-sym">${p.symbol||'—'}</div>
+              <div class="asset-name">${p.poolMeta||''}</div>
+            </div>
+          </div>
+        </td>
+        <td style="color:var(--cyan);font-size:10px">${p.chain||'—'}</td>
+        <td class="td-r">${apySupply}</td>
+        <td class="td-r">${apyBorrow}</td>
+        <td class="td-r"><span class="tvl-val">${fmt(p.tvlUsd)}</span></td>
+        <td>
+          ${util!=null?`<div class="util-bar-wrap">
+            <div class="util-bar"><div class="util-fill ${utilClass}" style="width:${utilW}%"></div></div>
+            <span class="util-txt">${utilPct}</span>
+          </div>`:'<span style="color:var(--text3)">—</span>'}
+        </td>
+        <td class="td-r"><span class="chg-cell ${chgClass(chg7)}">${chg7!=null?chgArrow(chg7)+Math.abs(chg7).toFixed(1)+'%':'—'}</span></td>
+        <td class="td-r"><span class="status-badge ${status}">${statusLabel}</span></td>
+      </tr>`;
+    });
+    html+=`</tbody></table>`;
+  } else {
+    html+=`<div class="section-title">底层资产 / 流动性池</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3);padding:20px 0">
+      DeFiLlama Yields 暂无该协议的池子数据
+    </div>`;
+  }
+
+  // Description
+  if(info.description){
+    html+=`<div class="section-title" style="margin-top:8px">协议简介</div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.8;max-width:720px;margin-bottom:20px">${info.description}</div>`;
+  }
+
+  // Links
+  const links=[
+    info.url && {label:'官网',href:info.url},
+    info.twitter && {label:'Twitter',href:'https://twitter.com/'+info.twitter},
+    info.github?.length && {label:'GitHub',href:info.github[0]},
+  ].filter(Boolean);
+  if(links.length){
+    html+=`<div style="display:flex;gap:10px;margin-bottom:20px">
+      ${links.map(l=>`<a href="${l.href}" target="_blank" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--amber);text-decoration:none;border:1px solid rgba(255,179,0,.2);padding:3px 10px;border-radius:2px;transition:background .15s" onmouseover="this.style.background='rgba(255,179,0,.08)'" onmouseout="this.style.background=''">${l.label} ↗</a>`).join('')}
+      <button onclick="removeProtocol('${slug}')" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--red);border:1px solid rgba(255,23,68,.2);padding:3px 10px;border-radius:2px;background:none;cursor:pointer;transition:background .15s" onmouseover="this.style.background='rgba(255,23,68,.08)'" onmouseout="this.style.background=''">从列表移除</button>
+    </div>`;
+  }
+
+  html+=`</div>`;
+  document.getElementById('mainPanel').innerHTML=html;
+}
+
+// ─── SEARCH ───────────────────────────────────────────────────────────────────
+function openSearch(){
+  loadAllProtocols();
+  document.getElementById('searchOverlay').classList.add('open');
+  setTimeout(()=>document.getElementById('searchInp').focus(),50);
+}
+function closeSearch(){
+  document.getElementById('searchOverlay').classList.remove('open');
+  document.getElementById('searchInp').value='';
+  document.getElementById('searchResults').innerHTML='<div class="search-empty">输入协议名称开始搜索</div>';
+}
+function closeSearchIfBg(e){if(e.target===document.getElementById('searchOverlay'))closeSearch();}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSearch();});
+
+let searchTimer=null;
+function onSearchInput(){
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(doSearch,220);
+}
+function onSearchKey(e){
+  if(e.key==='Enter'){
+    const first=document.querySelector('.search-result-item');
+    if(first) first.click();
+  }
+}
+
+function doSearch(){
+  const q=document.getElementById('searchInp').value.trim().toLowerCase();
+  const res=document.getElementById('searchResults');
+  if(!q){res.innerHTML='<div class="search-empty">输入协议名称开始搜索</div>';return;}
+  if(!allProtocols.length){res.innerHTML='<div class="search-empty">正在加载协议列表…</div>';return;}
+
+  const matched=allProtocols.filter(p=>
+    (p.name||'').toLowerCase().includes(q)||
+    (p.slug||'').toLowerCase().includes(q)
+  ).slice(0,10);
+
+  if(!matched.length){res.innerHTML='<div class="search-empty">未找到匹配协议</div>';return;}
+
+  res.innerHTML=matched.map(p=>`
+    <div class="search-result-item" onclick="addProtocol('${p.slug}')">
+      <div class="sri-left">
+        <div class="sri-logo">
+          ${p.logo?`<img src="${p.logo}" onerror="this.parentNode.textContent='◈'"/>`:'◈'}
+        </div>
+        <span class="sri-name">${p.name}</span>
+        <span class="sri-cat">${p.category||''}</span>
+      </div>
+      <span class="sri-tvl">${p.tvl?fmt(p.tvl):'—'}</span>
+    </div>`).join('');
+}
+
+function addProtocol(slug){
+  if(!watchlist.includes(slug)){
+    watchlist.push(slug);
+    localStorage.setItem('dvm_watch',JSON.stringify(watchlist));
+  }
+  closeSearch();
+  renderSidebar();
+  selectProtocol(slug);
+}
+
+function removeProtocol(slug){
+  watchlist=watchlist.filter(s=>s!==slug);
+  localStorage.setItem('dvm_watch',JSON.stringify(watchlist));
+  delete protocolData[slug];
+  activeSlug=null;
+  renderSidebar();
+  document.getElementById('mainPanel').innerHTML=`
+    <div class="welcome">
+      <div class="welcome-title">协议已移除</div>
+      <div class="welcome-hint">从左侧选择或 <span>添加</span> 新协议</div>
+    </div>`;
+}
+
+// ─── REFRESH ──────────────────────────────────────────────────────────────────
+async function refreshAll(){
+  loadTicker();
+  if(activeSlug) selectProtocol(activeSlug);
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+async function init(){
+  renderSidebar();
+  loadTicker();
+  setInterval(loadTicker, 60000);
+
+  // Pre-load sidebar TVL data for all watchlist items
+  watchlist.forEach(async slug=>{
+    try{
+      const r=await fetch(`${DEFI_LLAMA}/protocol/${slug}`);
+      const info=await r.json();
+      if(!protocolData[slug]) protocolData[slug]={info,pools:[]};
+      else protocolData[slug].info=info;
+      renderSidebar();
+      if(slug===activeSlug) renderDetail(slug);
+    }catch{}
+  });
+
+  // Auto-select first
+  if(watchlist.length) selectProtocol(watchlist[0]);
+}
+
+init();
+</script>
 </body>
 </html>
