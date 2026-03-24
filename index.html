@@ -1,75 +1,136 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DeFi Tracker</title>
-    <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DeFi 金库资产监控看板</title>
+  <style>
+    body { background: #090c10; color: #eee; font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 0;}
+    header { background: #121821; color: #10ffa5; padding: 18px 0; text-align: center; font-size: 24px; letter-spacing: 1.5px; }
+    .container { max-width: 900px; margin: 40px auto 20px auto; background: #161b24; border-radius: 16px; padding: 24px 20px; box-shadow: 0 8px 32px #0004;}
+    .desc { color: #90a4ae; margin-bottom: 30px; text-align: center; }
+    .vault-list { margin-top: 20px;}
+    .vault-card { background: #202634; border-radius: 10px; padding: 18px; margin-bottom: 18px; }
+    .vault-title { font-size: 18px; color: #3be58f; margin-bottom: 4px; font-weight: bold; }
+    .vault-sub { color: #aaa; font-size: 13px; margin-bottom: 8px;}
+    .vault-assets { margin-top: 10px;}
+    .asset-row { display: flex; align-items: center; padding: 4px 0; border-bottom: 1px solid #252b3a; }
+    .asset-row:last-child { border: none; }
+    .asset-name { flex: 0 0 160px; font-weight: 500;}
+    .asset-amt { flex: 0 0 110px; color: #10ffa5;}
+    .asset-value { flex: 1 1 auto;}
+    .asset-logo img { width: 18px; height: 18px; border-radius: 3px; vertical-align: middle; margin-right: 6px;}
+    .refresher { text-align: right; color: #888; font-size: 12px; }
+    .loading { text-align: center; margin: 30px 0; color: #3be58f; }
+    .error { color: #ff5454; text-align: center; margin-top: 40px;}
+    input, button { outline:none;}
+    .addr-input { width: 310px; padding: 7px 12px; border-radius:7px; border:1px solid #333; background:#212538; color:#eee; margin-bottom:8px; margin-right:14px;}
+    .refresh-btn { background: #10ffa5; color: #000; border: none; border-radius: 4px; padding: 7px 19px; cursor: pointer; font-size: 14px; font-weight:600;}
+    .refresh-btn:hover { background: #6dffe3; }
+    @media (max-width: 600px) {
+      .container { padding:10px 4px; }
+      .addr-input{width:96%;}
+    }
+  </style>
 </head>
 <body>
-    <header>
-        <h1>DeFi Tracker</h1>
-        <nav>
-            <ul>
-                <li><a href="#wallet">Wallet Management</a></li>
-                <li><a href="#stats">Statistics</a></li>
-                <li><a href="#protocols">Protocols</a></li>
-            </ul>
-        </nav>
-    </header>
-    <main>
-        <section id="wallet">
-            <h2>Wallet Management</h2>
-            <input type="text" id="wallet-address" placeholder="Enter wallet address">
-            <button id="fetch-wallet">Fetch Wallet Info</button>
-            <div id="wallet-info"></div>
-        </section>
-        <section id="stats">
-            <h2>Statistics</h2>
-            <div id="statistics"></div>
-        </section>
-        <section id="protocols">
-            <h2>Protocol Cards</h2>
-            <div id="protocol-cards"></div>
-        </section>
-    </main>
-    <footer>
-        <p>&copy; 2026 DeFi Tracker</p>
-    </footer>
-    <script src="scripts.js"></script>
+  <header>
+    DeFi 金库资产监控看板
+  </header>
+  <div class="container">
+    <div class="desc">
+      实时监控你关注的 DeFi 协议金库各底层资产变动，数据来源 <b>Zapper API</b>
+    </div>
+    <div>
+      <input type="text" class="addr-input" id="inputProtocols" placeholder="输入协议/金库合约地址, 逗号分隔" />
+      <button class="refresh-btn" onclick="refreshVaults()">查 询</button>
+    </div>
+    <div class="refresher" id="refresher"></div>
+    <div id="vaults" class="vault-list"></div>
+    <div id="err" class="error"></div>
+  </div>
+  <script>
+    // >>> 请在下方填写你的Zapper API key <<<
+    const ZAPPER_API_KEY = "e2f4ed92-88d8-461b-9642-ca9c884aac8d";
+
+    // 示例：关注金库/协议合约地址列表，按需修改
+    const DEMO_WATCHLIST = [
+      "0x0576a174d229e3cfa37253523e645a78a0c91b57", // EigenLayer Restaking ETH Vault demo
+      //"0x7e6b3e7d367dbaab781ebf61119cf435d32f58cd", // 增加多个协议或金库地址
+    ];
+    // ==========
+
+    // 自动填充默认合约列表
+    window.onload = () => {
+      document.getElementById('inputProtocols').value = DEMO_WATCHLIST.join(',');
+      refreshVaults();
+    }
+
+    async function refreshVaults() {
+      const addrList = document.getElementById('inputProtocols').value
+        .split(',').map(x=>x.trim()).filter(Boolean);
+      if (addrList.length == 0) {
+        document.getElementById('err').textContent = "请至少输入一个协议或金库地址";
+        document.getElementById('vaults').innerHTML = '';
+        return;
+      }
+      document.getElementById('err').textContent = '';
+      document.getElementById('vaults').innerHTML = '<div class="loading">正在加载...</div>';
+      document.getElementById('refresher').textContent = "数据刷新于 " + new Date().toLocaleTimeString();
+      try {
+        const all = await Promise.all(addrList.map(getVaultData));
+        let html = '';
+        all.forEach(r => {html += r;});
+        document.getElementById('vaults').innerHTML = html;
+      } catch(e) {
+        document.getElementById('err').textContent = "数据获取失败: " + e.message;
+        document.getElementById('vaults').innerHTML = '';
+      }
+    }
+
+    // 查询 vault/protocol 的所有相关资产。这里只做资产总览，未做收益率或详细结构解析。
+    async function getVaultData(address) {
+      // 你可根据实际 protocolId/network 精准调整API端点
+      const url = `https://api.zapper.fi/v2/vaults/${address}/balances?api_key=${ZAPPER_API_KEY}`;
+      // 如果上面端点不适用，可查阅 https://docs.zapper.xyz
+      let data;
+      try {
+        const r = await fetch(url);
+        if (r.status === 429) throw new Error("API 请求过多 (429)，请稍后再试");
+        if (!r.ok) throw new Error("API 出错: HTTP "+r.status);
+        data = await r.json();
+      } catch(e) {
+        return `<div class="vault-card">
+          <div class="vault-title">${address}</div>
+          <div class="error">拉取失败：${e.message}</div>
+        </div>`;
+      }
+      // 处理 vault 信息
+      if (!data || !Array.isArray(data) || data.length === 0) {
+        return `<div class="vault-card">
+          <div class="vault-title">${address}</div>
+          <div class="vault-sub">未查到该协议/金库资产或API不支持</div>
+        </div>`;
+      }
+      // 假设 data 是 vault 资产数组，可按需调优
+      let sub = data[0]?.appName ? `协议：${data[0].appName}` : "";
+      let assetRows = "";
+      (data[0]?.tokens || []).forEach(token => {
+        assetRows += `<div class="asset-row">
+          <span class="asset-logo">${token.icon ? `<img src="${token.icon}" />`:""}</span>
+          <span class="asset-name">${token.symbol||token.label||token.name||"?"}</span>
+          <span class="asset-amt">${token.balanceRaw ? parseFloat(token.balanceRaw).toFixed(3) : '-' }</span>
+          <span class="asset-value">$${token.balanceUSD ? Number(token.balanceUSD).toLocaleString(undefined,{maximumFractionDigits:2}) : '-'}</span>
+        </div>`;
+      });
+      return `
+      <div class="vault-card">
+        <div class="vault-title">${data[0]?.label || address}</div>
+        <div class="vault-sub">${sub}</div>
+        <div class="vault-assets">${assetRows || "<span style='color:#888;font-size:13px'>暂无资产明细</span>"}</div>
+      </div>
+      `;
+    }
+  </script>
 </body>
 </html>
-
-<!-- Zapper API integration -->
-<script>
-    const zapperApiBase = 'https://api.zapper.fi/v1';
-    const apiKey = 'YOUR_ZAPPER_API_KEY'; // Replace with your Zapper API Key
-
-    async function fetchWalletInfo(address) {
-        try {
-            const response = await fetch(`${zapperApiBase}/balances?addresses[]=${address}&api_key=${apiKey}`);
-            if (response.status === 429) {
-                throw new Error('Too many requests. Please try again later.');
-            }
-            if (!response.ok) {
-                throw new Error('Failed to fetch data from Zapper API.');
-            }
-            const data = await response.json();
-            // Process and display wallet info
-            displayWalletInfo(data);
-        } catch (error) {
-            console.error(error);
-            alert(error.message);
-        }
-    }
-
-    document.getElementById('fetch-wallet').addEventListener('click', () => {
-        const address = document.getElementById('wallet-address').value;
-        fetchWalletInfo(address);
-    });
-
-    function displayWalletInfo(data) {
-        const walletInfoDiv = document.getElementById('wallet-info');
-        walletInfoDiv.innerHTML = JSON.stringify(data, null, 2); // Example render
-    }
-</script>
