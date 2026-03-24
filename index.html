@@ -3,40 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Defi Tracker</title>
+    <title>DeFi Tracker</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <h1>Wallet Balances</h1>
-    <div id="balances"></div>
-    <script>
-        async function loadWallet() {
-            const apiKey = 'e2f4ed92-88d8-461b-9642-ca9c884aac8d'; // Zapper API key
-            const walletAddress = 'YOUR_WALLET_ADDRESS'; // Replace with actual wallet address
-            const url = `https://api.zapper.fi/v2/apps/tokens/balances?address=${walletAddress}`;
-
-            try {
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${apiKey}`
-                    }
-                });
-
-                if (response.status === 429) {
-                    // Handle HTTP 429 Too Many Requests
-                    document.getElementById('balances').innerHTML = '<p>Rate limit exceeded. Please try again later.</p>';
-                    return;
-                }
-
-                const data = await response.json();
-                // Process the data and update UI
-                document.getElementById('balances').innerText = JSON.stringify(data);
-            } catch (error) {
-                console.error('Error fetching wallet data:', error);
-            }
-        }
-
-        loadWallet();
-    </script>
+    <header>
+        <h1>DeFi Tracker</h1>
+        <nav>
+            <ul>
+                <li><a href="#wallet">Wallet Management</a></li>
+                <li><a href="#stats">Statistics</a></li>
+                <li><a href="#protocols">Protocols</a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        <section id="wallet">
+            <h2>Wallet Management</h2>
+            <input type="text" id="wallet-address" placeholder="Enter wallet address">
+            <button id="fetch-wallet">Fetch Wallet Info</button>
+            <div id="wallet-info"></div>
+        </section>
+        <section id="stats">
+            <h2>Statistics</h2>
+            <div id="statistics"></div>
+        </section>
+        <section id="protocols">
+            <h2>Protocol Cards</h2>
+            <div id="protocol-cards"></div>
+        </section>
+    </main>
+    <footer>
+        <p>&copy; 2026 DeFi Tracker</p>
+    </footer>
+    <script src="scripts.js"></script>
 </body>
 </html>
+
+<!-- Zapper API integration -->
+<script>
+    const zapperApiBase = 'https://api.zapper.fi/v1';
+    const apiKey = 'YOUR_ZAPPER_API_KEY'; // Replace with your Zapper API Key
+
+    async function fetchWalletInfo(address) {
+        try {
+            const response = await fetch(`${zapperApiBase}/balances?addresses[]=${address}&api_key=${apiKey}`);
+            if (response.status === 429) {
+                throw new Error('Too many requests. Please try again later.');
+            }
+            if (!response.ok) {
+                throw new Error('Failed to fetch data from Zapper API.');
+            }
+            const data = await response.json();
+            // Process and display wallet info
+            displayWalletInfo(data);
+        } catch (error) {
+            console.error(error);
+            alert(error.message);
+        }
+    }
+
+    document.getElementById('fetch-wallet').addEventListener('click', () => {
+        const address = document.getElementById('wallet-address').value;
+        fetchWalletInfo(address);
+    });
+
+    function displayWalletInfo(data) {
+        const walletInfoDiv = document.getElementById('wallet-info');
+        walletInfoDiv.innerHTML = JSON.stringify(data, null, 2); // Example render
+    }
+</script>
